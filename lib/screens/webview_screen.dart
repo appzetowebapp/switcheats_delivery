@@ -2042,8 +2042,11 @@ class _WebViewScreenState extends State<WebViewScreen>
   /// while the rider is still deciding.
   void _handleUrlChange(String urlString) {
     if (urlString.contains('/delivery') && _pendingNewOrderRefresh != null) {
-      if (urlString.contains('/active') || urlString.contains('/order/') || urlString.contains('/orders/')) {
-        debugPrint('🧹 URL is an active order page — clearing pending new order refresh');
+      if (urlString.contains('/active') ||
+          urlString.contains('/order/') ||
+          urlString.contains('/orders/')) {
+        debugPrint(
+            '🧹 URL is an active order page — clearing pending new order refresh');
         _pendingNewOrderRefresh = null;
         _pendingNewOrderRefreshTimer?.cancel();
         _dispatchTimer?.cancel();
@@ -2054,7 +2057,8 @@ class _WebViewScreenState extends State<WebViewScreen>
         return;
       }
 
-      debugPrint('📨 URL contains /delivery and pending order exists — dispatching to WebView: $urlString');
+      debugPrint(
+          '📨 URL contains /delivery and pending order exists — dispatching to WebView: $urlString');
       _dispatchNewOrderToWebView(_pendingNewOrderRefresh!);
     }
   }
@@ -2093,7 +2097,8 @@ class _WebViewScreenState extends State<WebViewScreen>
       // The WebView hasn't finished its first load yet (e.g. the very first
       // order of a cold start arrives while the page is still loading).
       // It'll be dispatched once onLoadStop fires instead of being dropped.
-      debugPrint('⏳ WebView not ready yet — queuing new-order notification for: $key');
+      debugPrint(
+          '⏳ WebView not ready yet — queuing new-order notification for: $key');
       return;
     }
 
@@ -2117,12 +2122,14 @@ class _WebViewScreenState extends State<WebViewScreen>
     _dispatchTimer?.cancel();
     _dispatchTimer = null;
 
-    debugPrint('📨 Starting dispatch timer for order: ${_notificationKey(data)}');
+    debugPrint(
+        '📨 Starting dispatch timer for order: ${_notificationKey(data)}');
     // Immediate dispatch
     _evaluateNewOrderScript(data);
 
     int count = 0;
-    _dispatchTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
+    _dispatchTimer =
+        Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       count++;
       if (count >= 15) {
         timer.cancel();
@@ -2144,11 +2151,12 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (currentUrl == null) return;
 
     final urlString = currentUrl.toString();
-    if (!urlString.contains('/delivery') || 
-        urlString.contains('/active') || 
-        urlString.contains('/order/') || 
+    if (!urlString.contains('/delivery') ||
+        urlString.contains('/active') ||
+        urlString.contains('/order/') ||
         urlString.contains('/orders/')) {
-      debugPrint('🚫 Skipping dispatch: WebView not on main delivery page ($urlString)');
+      debugPrint(
+          '🚫 Skipping dispatch: WebView not on main delivery page ($urlString)');
       return;
     }
 
@@ -2809,6 +2817,21 @@ class _WebViewScreenState extends State<WebViewScreen>
             
             return originalXHRSend.apply(this, arguments);
           };
+          
+          // Intercept localStorage to detect logout
+          var originalRemoveItem = localStorage.removeItem;
+          localStorage.removeItem = function(key) {
+            if (key === 'accessToken' || key === 'token') {
+               callFlutterHandler('captureLogoutEvent', 'logout');
+            }
+            return originalRemoveItem.apply(this, arguments);
+          };
+          
+          var originalClear = localStorage.clear;
+          localStorage.clear = function() {
+            callFlutterHandler('captureLogoutEvent', 'logout');
+            return originalClear.apply(this, arguments);
+          };
         })();
       """;
 
@@ -2819,6 +2842,30 @@ class _WebViewScreenState extends State<WebViewScreen>
         handlerName: 'captureApiRequest',
         callback: (args) {
           // Existing existing handler logic...
+        },
+      );
+
+      // Add Handler for Logout Event
+      controller.addJavaScriptHandler(
+        handlerName: 'captureLogoutEvent',
+        callback: (args) async {
+          debugPrint('🚪 Captured Logout Event from WebView');
+
+          // 1. Delete FCM Token from the backend / revoke locally
+          await NotificationService().deleteFCMToken();
+
+          // 2. Clear all native app preferences
+          await PrefsUtil.clearAll();
+
+          // 3. Clear any buffered new-order/tap notifications
+          NotificationService().consumePendingTap();
+          NotificationService().consumePendingNewOrder();
+
+          // 4. Cancel any currently displayed local notifications
+          await NotificationService().cancelAllNotifications();
+
+          // 5. Stop any ringing alerts
+          NotificationService().stopOrderAlertSound();
         },
       );
 
@@ -3916,7 +3963,8 @@ class _WebViewScreenState extends State<WebViewScreen>
                           _handleUrlChange(url.toString());
                         }
                       },
-                      onUpdateVisitedHistory: (controller, url, isReload) async {
+                      onUpdateVisitedHistory:
+                          (controller, url, isReload) async {
                         debugPrint('🔄 visited history update: $url');
                         if (url != null) {
                           _handleUrlChange(url.toString());
@@ -5159,5 +5207,3 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
   }
 }
-
-

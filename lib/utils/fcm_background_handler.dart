@@ -26,6 +26,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await PrefsUtil.init();
   } catch (_) {}
 
+  // Suppress completely if user is logged out
+  if (PrefsUtil.getAccessToken() == null) {
+    debugPrint(
+        '🚫 [BG] User is logged out. Ignoring background message entirely.');
+    return;
+  }
+
   try {
     debugPrint('📨 [BG] Background message received');
     debugPrint('🔍 [BG] RAW FCM PAYLOAD MAP: ${message.toMap()}');
@@ -45,10 +52,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     // Cross-isolate dedup: the same FCM message can occasionally be
     // delivered to both this background isolate and the foreground
     // through, posting the order notification and ringtone.
-    final String uniqueId = message.messageId ?? '';
-    final String dedupId = uniqueId.isNotEmpty
-        ? uniqueId
-        : 'msg_${(message.notification?.title ?? data['title'] ?? '').hashCode.abs()}_${(message.notification?.body ?? data['body'] ?? '').hashCode.abs()}_${data['orderId'] ?? data['order_id'] ?? ''}';
+    // We ignore message.messageId for deduplication because backends often send the
+    // same order multiple times (e.g. topic + token) which results in different messageIds.
+    // By hashing the title, body, and orderId, we can accurately catch semantic duplicates.
+    final String dedupId =
+        'msg_${(message.notification?.title ?? data['title'] ?? '').hashCode.abs()}_${(message.notification?.body ?? data['body'] ?? '').hashCode.abs()}_${data['orderId'] ?? data['order_id'] ?? ''}';
 
     if (await PrefsUtil.isDuplicateNotification(dedupId)) {
       debugPrint('🔁 [BG] Duplicate message suppressed: $dedupId');
@@ -63,10 +71,12 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
     if (isNewOrder) {
       if (title.trim().isEmpty || body.trim().isEmpty) {
-        debugPrint('ℹ️ [BG] Suppressing empty new order notification: title="$title", body="$body"');
+        debugPrint(
+            'ℹ️ [BG] Suppressing empty new order notification: title="$title", body="$body"');
         return;
       }
-      debugPrint('🔔 [BG] New order confirmed — showing system tray notification and sounding alarm.');
+      debugPrint(
+          '🔔 [BG] New order confirmed — showing system tray notification and sounding alarm.');
 
       final serviceInstance = NotificationService();
       await serviceInstance.initialize(isBackground: true);
@@ -88,7 +98,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           await serviceInstance.dismissAutoDisplayedDuplicate();
         }
       } else {
-        debugPrint('ℹ️ [BG] FCM SDK already displayed the order notification on the critical channel, skipping duplicate posting.');
+        debugPrint(
+            'ℹ️ [BG] FCM SDK already displayed the order notification on the critical channel, skipping duplicate posting.');
       }
 
       try {
@@ -100,38 +111,41 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
         await BackgroundServiceUtil.startRingtone(orderPayload);
       } catch (e) {
-        debugPrint('❌ [BG] Error invoking background service ringtone logic: $e');
+        debugPrint(
+            '❌ [BG] Error invoking background service ringtone logic: $e');
       }
       return;
     }
 
     if (!NotificationPayloadUtil.hasUserContent(message, data)) {
-      debugPrint('ℹ️ [BG] Silent payload has no user-visible content, ignoring.');
+      debugPrint(
+          'ℹ️ [BG] Silent payload has no user-visible content, ignoring.');
       return;
     }
 
     final silentTitle = NotificationPayloadUtil.titleFrom(message, data);
     final silentBody = NotificationPayloadUtil.bodyFrom(message, data);
-    
+
     if (silentTitle.trim().isEmpty || silentBody.trim().isEmpty) {
-      debugPrint('ℹ️ [BG] Suppressing incomplete non-order notification: title="$silentTitle", body="$silentBody"');
+      debugPrint(
+          'ℹ️ [BG] Suppressing incomplete non-order notification: title="$silentTitle", body="$silentBody"');
       return;
     }
 
     if (message.notification != null) {
-      debugPrint('ℹ️ [BG] FCM SDK already displayed the silent notification automatically, skipping duplicate posting.');
+      debugPrint(
+          'ℹ️ [BG] FCM SDK already displayed the silent notification automatically, skipping duplicate posting.');
       return;
     }
 
     final serviceInstance = NotificationService();
     await serviceInstance.initialize(isBackground: true);
-    
+
     await serviceInstance.showSimpleNotification(
       title: silentTitle,
       body: silentBody,
       notificationId: dedupId,
     );
-
   } catch (e, stack) {
     debugPrint('❌ [BG] FATAL ERROR: $e');
     debugPrint('❌ [BG] STACK: $stack');

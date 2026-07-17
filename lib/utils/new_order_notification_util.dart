@@ -173,10 +173,14 @@ class NewOrderNotificationUtil {
       try {
         final active = await android.getActiveNotifications();
         for (final n in active) {
-          if (n.id == 0) {
-            await plugin.cancel(0, tag: n.tag);
+          // FCM notifications often have tag non-null and id 0.
+          // They also might be on the silent channel (default FCM channel).
+          if (n.id == 0 ||
+              n.channelId == AppConfig.silentChannelId ||
+              (n.tag != null && n.tag!.contains('FCM'))) {
+            await plugin.cancel(n.id ?? 0, tag: n.tag);
             debugPrint(
-                '🧹 Dismissed duplicate auto-displayed notification (tag=${n.tag})');
+                '🧹 Dismissed duplicate auto-displayed notification (id=${n.id}, tag=${n.tag})');
           }
         }
       } catch (e) {

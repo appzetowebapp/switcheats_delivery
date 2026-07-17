@@ -41,7 +41,8 @@ class NotificationService {
   // Stream for new-order data as soon as it arrives in the foreground, so
   // the WebView can refresh and show the "Slide to Accept" popup
   // immediately without waiting for the user to tap the tray notification.
-  final _newOrderController = StreamController<Map<String, dynamic>>.broadcast();
+  final _newOrderController =
+      StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get onNewOrder => _newOrderController.stream;
 
   // Holds the most recent tap payload in case it arrives before the
@@ -69,7 +70,11 @@ class NotificationService {
 
   /// Strict evaluation logic to check for explicit new order criteria only
   static bool isNewOrderNotification(Map<String, dynamic> data) {
-    final type = (data['type'] ?? data['notification_type'] ?? data['click_action'] ?? data['event'] ?? '')
+    final type = (data['type'] ??
+            data['notification_type'] ??
+            data['click_action'] ??
+            data['event'] ??
+            '')
         .toString()
         .toLowerCase()
         .trim();
@@ -77,7 +82,8 @@ class NotificationService {
     final title = (data['title'] ?? '').toString().toLowerCase().trim();
     final body = (data['body'] ?? '').toString().toLowerCase().trim();
 
-    debugPrint('🔔 Notification Check => type="$type", title="$title", body="$body"');
+    debugPrint(
+        '🔔 Notification Check => type="$type", title="$title", body="$body"');
 
     // Reject immediate non-order patterns
     if (title.contains('rider arrived') || body.contains('rider arrived')) {
@@ -85,7 +91,9 @@ class NotificationService {
     }
 
     // Text Keyword Fallback Match
-    if (title.contains('new order') || title.contains('order received') || title.contains('naya order')) {
+    if (title.contains('new order') ||
+        title.contains('order received') ||
+        title.contains('naya order')) {
       return true;
     }
 
@@ -158,8 +166,8 @@ class NotificationService {
     }
 
     if (Platform.isAndroid && !isBackground) {
-      final androidPlugin = _notificationsPlugin
-          .resolvePlatformSpecificImplementation<
+      final androidPlugin =
+          _notificationsPlugin.resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
       try {
         await androidPlugin?.requestNotificationsPermission();
@@ -172,7 +180,8 @@ class NotificationService {
     await _initializeFirebaseMessaging();
 
     _isInitialized = true;
-    debugPrint('✅ Notification service initialized (isBackground: $isBackground)');
+    debugPrint(
+        '✅ Notification service initialized (isBackground: $isBackground)');
   }
 
   /// Initialize Firebase Cloud Messaging Configuration
@@ -214,7 +223,9 @@ class NotificationService {
         _handleForegroundMessage(message);
       });
 
-      FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+      FirebaseMessaging.instance
+          .getInitialMessage()
+          .then((RemoteMessage? message) {
         if (message != null) {
           _handleNotificationTap(_dataFromMessage(message));
         }
@@ -223,7 +234,6 @@ class NotificationService {
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         _handleNotificationTap(_dataFromMessage(message));
       });
-
     } catch (e) {
       debugPrint('❌ Error initializing Firebase Messaging: $e');
     }
@@ -231,6 +241,11 @@ class NotificationService {
 
   /// Process foreground notifications systematically using precise validation filters
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
+    if (PrefsUtil.getAccessToken() == null) {
+      debugPrint('🚫 [FG] User is logged out. Ignoring foreground message.');
+      return;
+    }
+
     RemoteNotification? notification = message.notification;
     Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
 
@@ -243,10 +258,11 @@ class NotificationService {
       }
     }
 
-    final String uniqueId = message.messageId ?? '';
-    final String dedupId = uniqueId.isNotEmpty
-        ? uniqueId
-        : 'msg_${(notification?.title ?? data['title'] ?? '').hashCode.abs()}_${(notification?.body ?? data['body'] ?? '').hashCode.abs()}_${data['orderId'] ?? data['order_id'] ?? ''}';
+    // We ignore message.messageId for deduplication because backends often send the
+    // same order multiple times (e.g. topic + token) which results in different messageIds.
+    // By hashing the title, body, and orderId, we can accurately catch semantic duplicates.
+    final String dedupId =
+        'msg_${(notification?.title ?? data['title'] ?? '').hashCode.abs()}_${(notification?.body ?? data['body'] ?? '').hashCode.abs()}_${data['orderId'] ?? data['order_id'] ?? ''}';
 
     _cleanOldNotificationIds();
 
@@ -259,11 +275,15 @@ class NotificationService {
     }
 
     if (isNewOrderNotification(data)) {
-      final orderTitle = notification?.title ?? data['title']?.toString() ?? 'New Order';
-      final orderBody = notification?.body ?? data['body']?.toString() ?? 'You have a new delivery order';
+      final orderTitle =
+          notification?.title ?? data['title']?.toString() ?? 'New Order';
+      final orderBody = notification?.body ??
+          data['body']?.toString() ??
+          'You have a new delivery order';
 
       if (orderTitle.trim().isEmpty || orderBody.trim().isEmpty) {
-        debugPrint('ℹ️ [FG] Suppressing empty new order notification: title="$orderTitle", body="$orderBody"');
+        debugPrint(
+            'ℹ️ [FG] Suppressing empty new order notification: title="$orderTitle", body="$orderBody"');
         return;
       }
 
@@ -297,14 +317,16 @@ class NotificationService {
     }
 
     if (!NotificationPayloadUtil.hasUserContent(message, data)) {
-      debugPrint('ℹ️ [FG] Silent payload has no user-visible content, ignoring.');
+      debugPrint(
+          'ℹ️ [FG] Silent payload has no user-visible content, ignoring.');
       return;
     }
 
     final silentTitle = NotificationPayloadUtil.titleFrom(message, data);
     final silentBody = NotificationPayloadUtil.bodyFrom(message, data);
     if (silentTitle.trim().isEmpty || silentBody.trim().isEmpty) {
-      debugPrint('ℹ️ [FG] Suppressing incomplete non-order notification: title="$silentTitle", body="$silentBody"');
+      debugPrint(
+          'ℹ️ [FG] Suppressing incomplete non-order notification: title="$silentTitle", body="$silentBody"');
       return;
     }
 
@@ -359,19 +381,40 @@ class NotificationService {
     }
   }
 
+  Future<void> deleteFCMToken() async {
+    try {
+      if (_firebaseMessaging == null) await _initializeFirebaseMessaging();
+      await _firebaseMessaging?.deleteToken();
+      debugPrint('🗑️ FCM token deleted locally.');
+    } catch (e) {
+      debugPrint('❌ Error deleting FCM token: $e');
+    }
+  }
+
+  Future<void> cancelAllNotifications() async {
+    try {
+      await _notificationsPlugin.cancelAll();
+      debugPrint('🧹 All local notifications cancelled.');
+    } catch (e) {
+      debugPrint('❌ Error cancelling notifications: $e');
+    }
+  }
+
   Future<void> _createNotificationChannel() async {
     try {
-      const AndroidNotificationChannel standardChannel = AndroidNotificationChannel(
+      const AndroidNotificationChannel standardChannel =
+          AndroidNotificationChannel(
         AppConfig.notificationChannelId,
         AppConfig.notificationChannelName,
         description: AppConfig.notificationChannelDescription,
-        importance: Importance.low, 
+        importance: Importance.low,
         playSound: false,
         enableVibration: false,
         showBadge: true,
       );
 
-      const AndroidNotificationChannel silentChannel = AndroidNotificationChannel(
+      const AndroidNotificationChannel silentChannel =
+          AndroidNotificationChannel(
         AppConfig.silentChannelId,
         AppConfig.silentChannelName,
         description: AppConfig.silentChannelDescription,
@@ -381,26 +424,32 @@ class NotificationService {
         showBadge: true,
       );
 
-      const AndroidNotificationChannel criticalChannel = AndroidNotificationChannel(
+      const AndroidNotificationChannel criticalChannel =
+          AndroidNotificationChannel(
         AppConfig.criticalChannelId,
         AppConfig.criticalChannelName,
         description: AppConfig.criticalChannelDescription,
         importance: Importance.max,
         playSound: true,
-        sound: RawResourceAndroidNotificationSound(AppConfig.notificationSoundName),
+        sound: RawResourceAndroidNotificationSound(
+            AppConfig.notificationSoundName),
         enableVibration: true,
         showBadge: true,
         enableLights: true,
         ledColor: Colors.red,
       );
 
-      final androidImplementation = _notificationsPlugin.resolvePlatformSpecificImplementation<
+      final androidImplementation =
+          _notificationsPlugin.resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
 
       if (androidImplementation != null) {
-        await androidImplementation.deleteNotificationChannel(AppConfig.notificationChannelId);
-        await androidImplementation.deleteNotificationChannel(AppConfig.silentChannelId);
-        await androidImplementation.deleteNotificationChannel(AppConfig.criticalChannelId);
+        await androidImplementation
+            .deleteNotificationChannel(AppConfig.notificationChannelId);
+        await androidImplementation
+            .deleteNotificationChannel(AppConfig.silentChannelId);
+        await androidImplementation
+            .deleteNotificationChannel(AppConfig.criticalChannelId);
 
         await androidImplementation.createNotificationChannel(standardChannel);
         await androidImplementation.createNotificationChannel(silentChannel);
@@ -447,6 +496,11 @@ class NotificationService {
   }
 
   void _handleNotificationTap(Map<String, dynamic> data) {
+    if (PrefsUtil.getAccessToken() == null) {
+      debugPrint('🚫 [Tap] User is logged out. Ignoring notification tap.');
+      return;
+    }
+
     try {
       _platform.invokeMethod('bringToFront');
     } catch (_) {}
@@ -477,15 +531,18 @@ class NotificationService {
   }) async {
     // Safeguard: Do not display completely empty/blank notifications
     if (title.trim().isEmpty || body.trim().isEmpty) {
-      debugPrint('⚠️ [NotificationService] Refusing to show empty/blank local notification: title="$title", body="$body"');
+      debugPrint(
+          '⚠️ [NotificationService] Refusing to show empty/blank local notification: title="$title", body="$body"');
       return;
     }
 
-    final int localNotificationId = notificationId != null && notificationId.isNotEmpty
-        ? notificationId.hashCode.abs() % 2147483647
-        : '${title}_$body'.hashCode.abs() % 2147483647;
+    final int localNotificationId =
+        notificationId != null && notificationId.isNotEmpty
+            ? notificationId.hashCode.abs() % 2147483647
+            : '${title}_$body'.hashCode.abs() % 2147483647;
 
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
       AppConfig.silentChannelId,
       AppConfig.silentChannelName,
       channelDescription: AppConfig.silentChannelDescription,
@@ -505,7 +562,8 @@ class NotificationService {
       body,
       NotificationDetails(
         android: androidDetails,
-        iOS: const DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: false),
+        iOS: const DarwinNotificationDetails(
+            presentAlert: true, presentBadge: true, presentSound: false),
       ),
       payload: payload,
     );
@@ -520,14 +578,16 @@ class NotificationService {
   }) async {
     // Safeguard: Do not display completely empty/blank notifications
     if (title.trim().isEmpty || body.trim().isEmpty) {
-      debugPrint('⚠️ [NotificationService] Refusing to show empty/blank order local notification: title="$title", body="$body"');
+      debugPrint(
+          '⚠️ [NotificationService] Refusing to show empty/blank order local notification: title="$title", body="$body"');
       return;
     }
 
     final data = orderData ?? {};
     final localId = NewOrderNotificationUtil.notificationIdFor(data);
 
-    final android = _notificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final android = _notificationsPlugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
     await NewOrderNotificationUtil.ensureCriticalChannel(android);
 
     await _notificationsPlugin.show(
@@ -562,6 +622,7 @@ class NotificationService {
   /// push on the default channel, so only our critical-channel order alert
   /// remains visible. See [NewOrderNotificationUtil.dismissAutoDisplayedDuplicate].
   Future<void> dismissAutoDisplayedDuplicate() async {
-    await NewOrderNotificationUtil.dismissAutoDisplayedDuplicate(_notificationsPlugin);
+    await NewOrderNotificationUtil.dismissAutoDisplayedDuplicate(
+        _notificationsPlugin);
   }
 }
