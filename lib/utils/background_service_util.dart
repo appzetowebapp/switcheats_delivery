@@ -47,10 +47,10 @@ void onStart(ServiceInstance service) async {
     await audioPlayer.stop();
 
     if (!PrefsUtil.isOverlayEnabled()) {
-      debugPrint('🔕 Background Service: Overlay disabled, stopping background service');
-      await audioPlayer.dispose();
-      service.stopSelf();
-      return;
+      debugPrint('🔕 Background Service: Overlay disabled, but keeping service alive for future orders.');
+      // We must NOT call service.stopSelf() here! If we kill the foreground service,
+      // Android 12+ will block us from restarting it when the next background FCM 
+      // message arrives, which is why the second order never rings!
     }
 
     // Reset notification info

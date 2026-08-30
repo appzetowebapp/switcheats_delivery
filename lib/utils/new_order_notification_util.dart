@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -67,7 +68,7 @@ class NewOrderNotificationUtil {
   }
 
   static NotificationDetails buildDetails() {
-    return const NotificationDetails(
+    return NotificationDetails(
       android: AndroidNotificationDetails(
         AppConfig.criticalChannelId,
         AppConfig.criticalChannelName,
@@ -77,12 +78,12 @@ class NewOrderNotificationUtil {
         playSound: true,
         // Explicitly reference the raw resource so the sound plays even if
         // the channel is newly created in this isolate.
-        sound: RawResourceAndroidNotificationSound(
+        sound: const RawResourceAndroidNotificationSound(
             AppConfig.notificationSoundName),
         enableVibration: true,
         icon: AppConfig.notificationIcon,
         visibility: NotificationVisibility.public,
-        styleInformation: BigTextStyleInformation(''),
+        styleInformation: const BigTextStyleInformation(''),
         colorized: true,
         color: Colors.red,
         showWhen: true,
@@ -90,8 +91,10 @@ class NewOrderNotificationUtil {
         ongoing: false,
         channelShowBadge: true,
         ticker: 'New order received',
+        fullScreenIntent: true,
+        additionalFlags: Int32List.fromList(<int>[4]), // FLAG_INSISTENT (loops the sound)
       ),
-      iOS: DarwinNotificationDetails(
+      iOS: const DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
@@ -163,6 +166,7 @@ class NewOrderNotificationUtil {
   /// id `0` (using whatever tag they were posted with) as they appear.
   static Future<void> dismissAutoDisplayedDuplicate(
     FlutterLocalNotificationsPlugin plugin,
+    int protectedId,
   ) async {
     final android = plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -173,14 +177,16 @@ class NewOrderNotificationUtil {
       try {
         final active = await android.getActiveNotifications();
         for (final n in active) {
-          // FCM notifications often have tag non-null and id 0.
-          // They also might be on the silent channel (default FCM channel).
-          if (n.id == 0 ||
-              n.channelId == AppConfig.silentChannelId ||
-              (n.tag != null && n.tag!.contains('FCM'))) {
+          // FCM notifications often have tag non-null and id 0, or they might 
+          // arrive on an older channel ID hardcoded by the backend.
+          // To be safe, we cancel any notification that isn't on our 
+          // exact current critical channel!
+          // We also MUST NOT cancel our own custom notification (protectedId)
+          // nor the persistent foreground service notification (ID 888).
+          if (n.id != protectedId && n.id != 888) {
             await plugin.cancel(n.id ?? 0, tag: n.tag);
             debugPrint(
-                '🧹 Dismissed duplicate auto-displayed notification (id=${n.id}, tag=${n.tag})');
+                '🧹 Dismissed duplicate auto-displayed notification (id=${n.id}, channel=${n.channelId}, tag=${n.tag})');
           }
         }
       } catch (e) {
