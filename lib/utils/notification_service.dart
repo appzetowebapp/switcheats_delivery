@@ -99,9 +99,8 @@ class NotificationService {
 
     // Strict Target Whitelist Filter Mapping
     const newOrderTypes = {
-      'new_order',
       'new-order',
-      'neworder',
+      'new_order',
       'create_order',
       'order_placed',
     };
@@ -295,16 +294,14 @@ class NotificationService {
         orderData: data,
       );
 
+      final localId = NewOrderNotificationUtil.notificationIdFor(data);
       if (message.notification != null) {
-        unawaited(dismissAutoDisplayedDuplicate());
+        unawaited(dismissAutoDisplayedDuplicate(localId));
       }
 
-      try {
-        await BackgroundServiceUtil.startRingtone(
-            {'title': orderTitle, 'body': orderBody, 'data': data});
-      } catch (e) {
-        debugPrint('⚠️ Could not start background ringtone: $e');
-      }
+      // The OS will play the ringtone via `FLAG_INSISTENT` because we call
+      // showOrderNotification above. We do not need the BackgroundServiceUtil
+      // to play the ringtone simultaneously.
 
       if (_newOrderController.hasListener) {
         _newOrderController.add(data);
@@ -621,8 +618,8 @@ class NotificationService {
   /// Dismisses any tray notification the FCM SDK auto-displayed for this
   /// push on the default channel, so only our critical-channel order alert
   /// remains visible. See [NewOrderNotificationUtil.dismissAutoDisplayedDuplicate].
-  Future<void> dismissAutoDisplayedDuplicate() async {
+  Future<void> dismissAutoDisplayedDuplicate(int protectedId) async {
     await NewOrderNotificationUtil.dismissAutoDisplayedDuplicate(
-        _notificationsPlugin);
+        _notificationsPlugin, protectedId);
   }
 }
