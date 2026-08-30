@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ui';
+import 'package:audioplayers/audioplayers.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -34,10 +35,20 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 
   try {
-    debugPrint('📨 [BG] Background message received');
-    debugPrint('🔍 [BG] RAW FCM PAYLOAD MAP: ${message.toMap()}');
-
     Map<String, dynamic> data = Map<String, dynamic>.from(message.data);
+
+    debugPrint('================ FCM RECEIVED (BACKGROUND/TERMINATED) ================');
+    debugPrint('📦 Raw message.toMap(): ${message.toMap()}');
+    debugPrint('📝 Title: ${message.notification?.title}');
+    debugPrint('📝 Body: ${message.notification?.body}');
+    debugPrint('📋 Data: $data');
+    debugPrint('🆔 MessageId: ${message.messageId}');
+    debugPrint('🆔 OrderId: ${data['orderId'] ?? data['order_id'] ?? data['id']}');
+    debugPrint('🏷️ Type: ${data['type']}');
+    debugPrint('👤 UserId: ${data['userId'] ?? data['user_id']}');
+    debugPrint('🚚 DeliveryPartnerId: ${data['deliveryPartnerId'] ?? data['delivery_partner_id'] ?? data['partnerId'] ?? data['riderId']}');
+    debugPrint('📱 App State: background/terminated');
+    debugPrint('========================================================================');
     RemoteNotification? notification = message.notification;
 
     if (notification != null) {
@@ -59,8 +70,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         'msg_${(message.notification?.title ?? data['title'] ?? '').hashCode.abs()}_${(message.notification?.body ?? data['body'] ?? '').hashCode.abs()}_${data['orderId'] ?? data['order_id'] ?? ''}';
 
     if (await PrefsUtil.isDuplicateNotification(dedupId)) {
-      debugPrint('🔁 [BG] Duplicate message suppressed: $dedupId');
-      return;
+      debugPrint('🔁 [BG] Duplicate message detected: $dedupId. BYPASSING suppression for testing purposes so it rings every time.');
+      // return; // <-- Commented out so it rings every time you test!
     }
 
     final isNewOrder = NotificationService.isNewOrderNotification(data);
@@ -81,38 +92,20 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       final serviceInstance = NotificationService();
       await serviceInstance.initialize(isBackground: true);
 
-      final autoDisplayedOnCriticalChannel = message.notification != null &&
-          message.notification?.android?.channelId ==
-              AppConfig.criticalChannelId;
+      // We must ALWAYS show our local notification because it contains FLAG_INSISTENT 
+      // to continuously loop the ringtone. The FCM SDK's auto-displayed notification 
+      // does not have this flag and will only play the sound once.
+      await serviceInstance.showOrderNotification(
+        title: title,
+        body: body,
+        payload: jsonEncode(data),
+        notificationId: dedupId,
+        orderData: data,
+      );
 
-      if (!autoDisplayedOnCriticalChannel) {
-        await serviceInstance.showOrderNotification(
-          title: title,
-          body: body,
-          payload: jsonEncode(data),
-          notificationId: dedupId,
-          orderData: data,
-        );
-
-        if (message.notification != null) {
-          await serviceInstance.dismissAutoDisplayedDuplicate();
-        }
-      } else {
-        debugPrint(
-            'ℹ️ [BG] FCM SDK already displayed the order notification on the critical channel, skipping duplicate posting.');
-      }
-
-      try {
-        final orderPayload = {
-          'title': title,
-          'body': body,
-          'data': data,
-        };
-
-        await BackgroundServiceUtil.startRingtone(orderPayload);
-      } catch (e) {
-        debugPrint(
-            '❌ [BG] Error invoking background service ringtone logic: $e');
+      final localId = NewOrderNotificationUtil.notificationIdFor(data);
+      if (message.notification != null) {
+        await serviceInstance.dismissAutoDisplayedDuplicate(localId);
       }
       return;
     }

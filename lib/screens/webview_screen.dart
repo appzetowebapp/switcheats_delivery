@@ -2165,6 +2165,14 @@ class _WebViewScreenState extends State<WebViewScreen>
       (function() {
         try {
           var orderData = $payload;
+          var orderId = orderData.orderId || orderData.order_id || orderData.id;
+          
+          if (window._lastDispatchedOrderId === orderId) {
+            // Already dispatched to the webpage recently, avoid flashing popup!
+            return;
+          }
+          window._lastDispatchedOrderId = orderId;
+          
           window.dispatchEvent(new CustomEvent('newOrderReceived', { detail: orderData }));
           window.postMessage({ type: 'NEW_ORDER', source: 'native-app', data: orderData }, '*');
           if (typeof window.onNewOrderReceived === 'function') {
@@ -3923,6 +3931,10 @@ class _WebViewScreenState extends State<WebViewScreen>
                             _dispatchTimer = null;
                             _lastHandledNotificationKey = null;
                             _lastReloadTriggerTime = null;
+                            try {
+                              await controller.evaluateJavascript(
+                                  source: 'window._lastDispatchedOrderId = null;');
+                            } catch (_) {}
                             await NotificationService().stopOrderAlertSound();
                           },
                         );
